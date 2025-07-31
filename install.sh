@@ -196,32 +196,42 @@ install_myapp() {
     unzip app-linux.zip
     rm app-linux.zip -f
     
-    # 检查解压后的主程序文件（注意实际文件名是V2bX）
-    if [[ -f V2bX ]]; then
-        original_name="V2bX"
-    elif [[ -f v2bx ]]; then
-        original_name="v2bx"
-    else
+    # 查找实际解压出的主程序文件（解决大小写问题）
+    original_name=$(find . -maxdepth 1 -type f -iname "v2bx" -o -iname "v2b*" -o -iname "V2bX" | head -1)
+    original_name=$(basename "$original_name")
+    
+    if [[ -z "$original_name" ]]; then
         echo -e "${red}未找到主程序文件，安装失败${plain}"
         exit 1
     fi
 
+    echo -e "${yellow}检测到主程序文件: ${original_name}${plain}"
+    
     # 使用UPX压缩主程序并重命名
     echo -e "${yellow}正在使用UPX压缩主程序...${plain}"
-    upx --best -q -o $executable_name $original_name
-    if [[ $? -eq 0 ]]; then
-        chmod +x $executable_name
-        rm -f $original_name
-        echo -e "${green}主程序已压缩并重命名为: ${executable_name}${plain}"
+    
+    # 尝试压缩，如果失败则直接重命名
+    if upx --best -q -o $executable_name "$original_name"; then
+        echo -e "${green}主程序压缩成功${plain}"
+        rm -f "$original_name"
     else
-        echo -e "${red}UPX压缩失败，使用原始文件${plain}"
-        mv $original_name $executable_name
-        chmod +x $executable_name
+        echo -e "${yellow}UPX压缩失败，直接重命名主程序${plain}"
+        mv "$original_name" $executable_name
     fi
     
+    chmod +x $executable_name
+    
     mkdir $config_dir/ -p
-    cp geoip.dat $config_dir/
-    cp geosite.dat $config_dir/
+    # 只复制必要的文件
+    [ -f geoip.dat ] && cp geoip.dat $config_dir/
+    [ -f geosite.dat ] && cp geosite.dat $config_dir/
+    
+    # 复制配置文件（如果存在）
+    [ -f config.json ] && cp config.json $config_dir/
+    [ -f dns.json ] && cp dns.json $config_dir/
+    [ -f route.json ] && cp route.json $config_dir/
+    [ -f custom_outbound.json ] && cp custom_outbound.json $config_dir/
+    [ -f custom_inbound.json ] && cp custom_inbound.json $config_dir/
     
     if [[ x"${release}" == x"alpine" ]]; then
         rm /etc/init.d/$service_name -f
@@ -276,9 +286,13 @@ EOF
     fi
 
     if [[ ! -f $config_dir/config.json ]]; then
-        cp config.json $config_dir/
+        if [ -f config.json ]; then
+            cp config.json $config_dir/
+        else
+            echo "{}" > $config_dir/config.json
+        fi
         echo -e ""
-        echo -e "全新安装，请先参看教程配置必要的内容"
+        echo -e "全新安装，请先配置必要的内容"
         first_install=true
     else
         if [[ x"${release}" == x"alpine" ]]; then
@@ -297,21 +311,8 @@ EOF
         first_install=false
     fi
 
-    if [[ ! -f $config_dir/dns.json ]]; then
-        cp dns.json $config_dir/
-    fi
-    if [[ ! -f $config_dir/route.json ]]; then
-        cp route.json $config_dir/
-    fi
-    if [[ ! -f $config_dir/custom_outbound.json ]]; then
-        cp custom_outbound.json $config_dir/
-    fi
-    if [[ ! -f $config_dir/custom_inbound.json ]]; then
-        cp custom_inbound.json $config_dir/
-    fi
-    
     # 创建管理脚本
-    cat <<'EOF' > /usr/bin/$app_name
+    cat <<EOF > /usr/bin/$app_name
 #!/bin/bash
 
 red='\033[0;31m'
@@ -319,10 +320,10 @@ green='\033[0;32m'
 yellow='\033[0;33m'
 plain='\033[0m'
 
-install_dir="/usr/local/myapp"
-config_dir="/etc/myapp"
-executable_name="myapp"
-service_name="myapp-service"
+install_dir="$install_dir"
+config_dir="$config_dir"
+executable_name="$executable_name"
+service_name="$service_name"
 
 show_menu() {
     echo -e "${green}管理菜单:${plain}"
@@ -336,7 +337,7 @@ show_menu() {
     echo "8. 卸载应用"
     echo "0. 退出"
     read -p "请选择操作: " choice
-    case $choice in
+    case \$choice in
         1) start_service ;;
         2) stop_service ;;
         3) restart_service ;;
@@ -346,73 +347,189 @@ show_menu() {
         7) update_app ;;
         8) uninstall_app ;;
         0) exit 0 ;;
-        *) echo -e "${red}无效选择${plain}" ;;
+        *) echo -e "\${red}无效选择\${plain}" ;;
     esac
 }
 
 start_service() {
-    if [[ -f /etc/init.d/$service_name ]]; then
-        /etc/init.d/$service_name start
+    if [[ -f /etc/init.d/\$service_name ]]; then
+        /etc/init.d/\$service_name start
     else
-        systemctl start $service_name
+        systemctl start \$service_name
     fi
-    echo -e "${green}服务已启动${plain}"
+    echo -e "\${green}服务已启动\${plain}"
 }
 
 stop_service() {
-    if [[ -f /etc/init.d/$service_name ]]; then
-        /etc/init.d/$service_name stop
+    if [[ -f /etc/init.d/\$service_name ]]; then
+        /etc/init.d/\$service_name stop
     else
-        systemctl stop $service_name
+        systemctl stop \$service_name
     fi
-    echo -e "${green}服务已停止${plain}"
+    echo -e "\${green}服务已停止\${plain}"
 }
 
 restart_service() {
-    if [[ -f /etc/init.d/$service_name ]]; then
-        /etc/init.d/$service_name restart
+    if [[ -f /etc/init.d/\$service_name ]]; then
+        /etc/init.d/\$service_name restart
     else
-        systemctl restart $service_name
+        systemctl restart \$service_name
     fi
-    echo -e "${green}服务已重启${plain}"
+    echo -e "\${green}服务已重启\${plain}"
 }
 
 show_status() {
-    if [[ -f /etc/init.d/$service_name ]]; then
-        /etc/init.d/$service_name status
+    if [[ -f /etc/init.d/\$service_name ]]; then
+        /etc/init.d/\$service_name status
     else
-        systemctl status $service_name
+        systemctl status \$service_name
     fi
 }
 
 show_logs() {
-    journalctl -u $service_name -n 50 --no-pager
+    journalctl -u \$service_name -n 50 --no-pager
 }
 
 generate_config() {
-    # 这里添加生成配置的逻辑
-    echo -e "${green}配置文件已生成${plain}"
+    echo -e "\${yellow}正在生成示例配置文件...\${plain}"
+    cat <<CFG_EOF > \$config_dir/config.json
+{
+    "log": {
+        "level": "info",
+        "output": ""
+    },
+    "api": {
+        "services": [
+            "HandlerService",
+            "LoggerService",
+            "StatsService"
+        ],
+        "tag": "api"
+    },
+    "stats": {},
+    "policy": {
+        "levels": {
+            "0": {
+                "handshake": 4,
+                "connIdle": 300,
+                "uplinkOnly": 2,
+                "downlinkOnly": 5,
+                "statsUserUplink": true,
+                "statsUserDownlink": true
+            }
+        },
+        "system": {
+            "statsInboundUplink": true,
+            "statsInboundDownlink": true
+        }
+    },
+    "inbounds": [
+        {
+            "listen": "0.0.0.0",
+            "port": 443,
+            "protocol": "vmess",
+            "settings": {
+                "clients": [
+                    {
+                        "id": "b831381d-6324-4d53-ad4f-8cda48b30811",
+                        "alterId": 0
+                    }
+                ]
+            },
+            "streamSettings": {
+                "network": "ws",
+                "wsSettings": {
+                    "path": "/path"
+                }
+            },
+            "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                    "http",
+                    "tls"
+                ]
+            },
+            "tag": "inbound-443"
+        }
+    ],
+    "outbounds": [
+        {
+            "protocol": "freedom",
+            "settings": {}
+        },
+        {
+            "protocol": "blackhole",
+            "settings": {},
+            "tag": "blocked"
+        }
+    ],
+    "transport": {
+        "kcpSettings": {
+            "uplinkCapacity": 100,
+            "downlinkCapacity": 100,
+            "congestion": true
+        }
+    },
+    "routing": {
+        "domainStrategy": "AsIs",
+        "rules": [
+            {
+                "type": "field",
+                "inboundTag": [
+                    "api"
+                ],
+                "outboundTag": "api"
+            },
+            {
+                "type": "field",
+                "ip": [
+                    "geoip:private"
+                ],
+                "outboundTag": "blocked"
+            }
+        ]
+    }
+}
+CFG_EOF
+    echo -e "\${green}示例配置文件已生成: \$config_dir/config.json\${plain}"
+    echo -e "\${yellow}请根据实际需要修改此文件\${plain}"
 }
 
 update_app() {
-    echo -e "${yellow}正在更新应用...${plain}"
-    # 这里添加更新应用的逻辑
-    echo -e "${green}应用已更新${plain}"
+    echo -e "\${yellow}正在更新应用...\${plain}"
+    curl -o /tmp/update_myapp.sh -Ls https://raw.githubusercontent.com/your_repo/update_script.sh
+    if [[ \$? -eq 0 ]]; then
+        bash /tmp/update_myapp.sh
+        rm -f /tmp/update_myapp.sh
+    else
+        echo -e "\${red}更新脚本下载失败\${plain}"
+    fi
 }
 
 uninstall_app() {
-    echo -e "${yellow}正在卸载应用...${plain}"
-    stop_service
+    echo -e "\${yellow}正在卸载应用...\${plain}"
+    
+    # 停止服务
+    if [[ -f /etc/init.d/\$service_name ]]; then
+        /etc/init.d/\$service_name stop
+        rc-update del \$service_name
+    else
+        systemctl stop \$service_name
+        systemctl disable \$service_name
+    fi
+    
+    # 删除文件
     rm -rf $install_dir
     rm -rf $config_dir
-    rm -f /etc/systemd/system/$service_name.service
-    rm -f /etc/init.d/$service_name
-    rm -f /usr/bin/$app_name
-    echo -e "${green}应用已卸载${plain}"
+    rm -f /etc/systemd/system/\$service_name.service
+    rm -f /etc/init.d/\$service_name
+    rm -f /usr/bin/\$app_name
+    
+    echo -e "\${green}应用已卸载\${plain}"
 }
 
 # 主逻辑
-case "$1" in
+case "\$1" in
     start) start_service ;;
     stop) stop_service ;;
     restart) restart_service ;;
@@ -422,13 +539,13 @@ case "$1" in
     update) update_app ;;
     install) echo "请运行安装脚本" ;;
     uninstall) uninstall_app ;;
-    version) $install_dir/$executable_name -v ;;
+    version) \$install_dir/\$executable_name -v ;;
     menu) show_menu ;;
     *)
-        if [ -z "$1" ]; then
+        if [ -z "\$1" ]; then
             show_menu
         else
-            echo "用法: $app_name {start|stop|restart|status|log|generate|update|uninstall|version|menu}"
+            echo "用法: \$app_name {start|stop|restart|status|log|generate|update|uninstall|version|menu}"
         fi
         ;;
 esac
@@ -437,7 +554,6 @@ EOF
     chmod +x /usr/bin/$app_name
     
     cd $cur_dir
-    rm -f install.sh
     echo -e ""
     echo "应用管理脚本使用方法: "
     echo "------------------------------------------"
@@ -452,12 +568,13 @@ EOF
     echo "$app_name uninstall    - 卸载应用"
     echo "$app_name version      - 查看应用版本"
     echo "------------------------------------------"
+    echo -e "${green}安装完成!${plain}"
+    
     # 首次安装询问是否生成配置文件
     if [[ $first_install == true ]]; then
-        read -rp "检测到你为第一次安装应用,是否自动直接生成配置文件？(y/n): " if_generate
+        read -rp "是否生成示例配置文件？(y/n): " if_generate
         if [[ $if_generate == [Yy] ]]; then
-            # 这里添加生成配置文件的逻辑
-            echo -e "${green}配置文件已生成${plain}"
+            /usr/bin/$app_name generate
         fi
     fi
 }
