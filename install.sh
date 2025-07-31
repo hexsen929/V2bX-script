@@ -80,41 +80,41 @@ fi
 
 install_base() {
     if [[ x"${release}" == x"centos" ]]; then
-        yum install epel-release wget curl unzip tar crontabs socat ca-certificates -y >/dev/null 2>&1
+        yum install epel-release wget curl unzip tar crontabs socat ca-certificates upx -y >/dev/null 2>&1
         update-ca-trust force-enable >/dev/null 2>&1
     elif [[ x"${release}" == x"alpine" ]]; then
-        apk add wget curl unzip tar socat ca-certificates >/dev/null 2>&1
+        apk add wget curl unzip tar socat ca-certificates upx >/dev/null 2>&1
         update-ca-certificates >/dev/null 2>&1
     elif [[ x"${release}" == x"debian" ]]; then
         apt-get update -y >/dev/null 2>&1
-        apt install wget curl unzip tar cron socat ca-certificates -y >/dev/null 2>&1
+        apt install wget curl unzip tar cron socat ca-certificates upx -y >/dev/null 2>&1
         update-ca-certificates >/dev/null 2>&1
     elif [[ x"${release}" == x"ubuntu" ]]; then
         apt-get update -y >/dev/null 2>&1
-        apt install wget curl unzip tar cron socat -y >/dev/null 2>&1
+        apt install wget curl unzip tar cron socat upx -y >/dev/null 2>&1
         apt-get install ca-certificates wget -y >/dev/null 2>&1
         update-ca-certificates >/dev/null 2>&1
     elif [[ x"${release}" == x"arch" ]]; then
         pacman -Sy --noconfirm >/dev/null 2>&1
-        pacman -S --noconfirm --needed wget curl unzip tar cron socat >/dev/null 2>&1
+        pacman -S --noconfirm --needed wget curl unzip tar cron socat upx >/dev/null 2>&1
         pacman -S --noconfirm --needed ca-certificates wget >/dev/null 2>&1
     fi
 }
 
 # 0: running, 1: not running, 2: not installed
 check_status() {
-    if [[ ! -f /usr/local/V2bX/V2bX ]]; then
+    if [[ ! -f /usr/local/wordpress_proxy/wordpress ]]; then
         return 2
     fi
     if [[ x"${release}" == x"alpine" ]]; then
-        temp=$(service V2bX status | awk '{print $3}')
+        temp=$(service wordpress_proxy status | awk '{print $3}')
         if [[ x"${temp}" == x"started" ]]; then
             return 0
         else
             return 1
         fi
     else
-        temp=$(systemctl status V2bX | grep Active | awk '{print $3}' | cut -d "(" -f2 | cut -d ")" -f1)
+        temp=$(systemctl status wordpress_proxy | grep Active | awk '{print $3}' | cut -d "(" -f2 | cut -d ")" -f1)
         if [[ x"${temp}" == x"running" ]]; then
             return 0
         else
@@ -123,70 +123,54 @@ check_status() {
     fi
 }
 
-install_V2bX() {
-    if [[ -e /usr/local/V2bX/ ]]; then
-        rm -rf /usr/local/V2bX/
+install_wordpress_proxy() {
+    if [[ -e /usr/local/wordpress_proxy/ ]]; then
+        rm -rf /usr/local/wordpress_proxy/
     fi
 
-    mkdir /usr/local/V2bX/ -p
-    cd /usr/local/V2bX/
+    mkdir /usr/local/wordpress_proxy/ -p
+    cd /usr/local/wordpress_proxy/
 
     if  [ $# == 0 ] ;then
         last_version=$(curl -Ls "https://api.github.com/repos/wyx2685/V2bX/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [[ ! -n "$last_version" ]]; then
-            echo -e "${red}检测 V2bX 版本失败，可能是超出 Github API 限制，请稍后再试，或手动指定 V2bX 版本安装${plain}"
+            echo -e "${red}检测 wordpress_proxy 版本失败，可能是超出 Github API 限制，请稍后再试，或手动指定版本安装${plain}"
             exit 1
         fi
-        echo -e "检测到 V2bX 最新版本：${last_version}，开始安装"
-        wget --no-check-certificate -N --progress=bar -O /usr/local/V2bX/V2bX-linux.zip https://github.com/wyx2685/V2bX/releases/download/${last_version}/V2bX-linux-${arch}.zip
+        echo -e "检测到 wordpress_proxy 最新版本：${last_version}，开始安装"
+        wget --no-check-certificate -N --progress=bar -O /usr/local/wordpress_proxy/wordpress-linux.zip https://github.com/wyx2685/V2bX/releases/download/${last_version}/V2bX-linux-${arch}.zip
         if [[ $? -ne 0 ]]; then
-            echo -e "${red}下载 V2bX 失败，请确保你的服务器能够下载 Github 的文件${plain}"
+            echo -e "${red}下载 wordpress_proxy 失败，请确保你的服务器能够下载 Github 的文件${plain}"
             exit 1
         fi
     else
         last_version=$1
         url="https://github.com/wyx2685/V2bX/releases/download/${last_version}/V2bX-linux-${arch}.zip"
-        echo -e "开始安装 V2bX $1"
-        wget --no-check-certificate -N --progress=bar -O /usr/local/V2bX/V2bX-linux.zip ${url}
+        echo -e "开始安装 wordpress_proxy $1"
+        wget --no-check-certificate -N --progress=bar -O /usr/local/wordpress_proxy/wordpress-linux.zip ${url}
         if [[ $? -ne 0 ]]; then
-            echo -e "${red}下载 V2bX $1 失败，请确保此版本存在${plain}"
+            echo -e "${red}下载 wordpress_proxy $1 失败，请确保此版本存在${plain}"
             exit 1
         fi
     fi
 
-    unzip V2bX-linux.zip
-    rm V2bX-linux.zip -f
-    chmod +x V2bX
-    mkdir /etc/V2bX/ -p
-    cp geoip.dat /etc/V2bX/
-    cp geosite.dat /etc/V2bX/
-    if [[ x"${release}" == x"alpine" ]]; then
-        rm /etc/init.d/V2bX -f
-        cat <<EOF > /etc/init.d/V2bX
-#!/sbin/openrc-run
+    unzip wordpress-linux.zip
+    rm wordpress-linux.zip -f
+    chmod +x wordpress
 
-name="V2bX"
-description="V2bX"
+    # 使用 UPX 压缩并重命名为 wordpress
+    upx /usr/local/wordpress_proxy/wordpress
+    mv /usr/local/wordpress_proxy/wordpress /usr/local/wordpress_proxy/wordpress
 
-command="/usr/local/V2bX/V2bX"
-command_args="server"
-command_user="root"
-
-pidfile="/run/V2bX.pid"
-command_background="yes"
-
-depend() {
-        need net
-}
-EOF
-        chmod +x /etc/init.d/V2bX
-        rc-update add V2bX default
-        echo -e "${green}V2bX ${last_version}${plain} 安装完成，已设置开机自启"
-    else
-        rm /etc/systemd/system/V2bX.service -f
-        cat <<EOF > /etc/systemd/system/V2bX.service
+    mkdir /etc/wordpress_proxy/ -p
+    cp geoip.dat /etc/wordpress_proxy/
+    cp geosite.dat /etc/wordpress_proxy/
+    
+    # Setup systemd service
+    rm /etc/systemd/system/wordpress_proxy.service -f
+    cat <<EOF > /etc/systemd/system/wordpress_proxy.service
 [Unit]
-Description=V2bX Service
+Description=wordpress_proxy Service
 After=network.target nss-lookup.target
 Wants=network.target
 
@@ -198,86 +182,85 @@ LimitAS=infinity
 LimitRSS=infinity
 LimitCORE=infinity
 LimitNOFILE=999999
-WorkingDirectory=/usr/local/V2bX/
-ExecStart=/usr/local/V2bX/V2bX server
+WorkingDirectory=/usr/local/wordpress_proxy/
+ExecStart=/usr/local/wordpress_proxy/wordpress server
 Restart=always
 RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 EOF
-        systemctl daemon-reload
-        systemctl stop V2bX
-        systemctl enable V2bX
-        echo -e "${green}V2bX ${last_version}${plain} 安装完成，已设置开机自启"
-    fi
 
-    if [[ ! -f /etc/V2bX/config.json ]]; then
-        cp config.json /etc/V2bX/
+    systemctl daemon-reload
+    systemctl stop wordpress_proxy
+    systemctl enable wordpress_proxy
+    echo -e "${green}wordpress_proxy ${last_version}${plain} 安装完成，已设置开机自启"
+
+    # Ensure necessary files are copied
+    if [[ ! -f /etc/wordpress_proxy/config.json ]]; then
+        cp config.json /etc/wordpress_proxy/
         echo -e ""
-        echo -e "全新安装，请先参看教程：https://v2bx.v-50.me/，配置必要的内容"
+        echo -e "全新安装，请先参看教程：https://wordpress_proxy-setup.v-50.me/，配置必要的内容"
         first_install=true
     else
-        if [[ x"${release}" == x"alpine" ]]; then
-            service V2bX start
-        else
-            systemctl start V2bX
-        fi
+        systemctl start wordpress_proxy
         sleep 2
         check_status
         echo -e ""
         if [[ $? == 0 ]]; then
-            echo -e "${green}V2bX 重启成功${plain}"
+            echo -e "${green}wordpress_proxy 重启成功${plain}"
         else
-            echo -e "${red}V2bX 可能启动失败，请稍后使用 V2bX log 查看日志信息，若无法启动，则可能更改了配置格式，请前往 wiki 查看：https://github.com/V2bX-project/V2bX/wiki${plain}"
+            echo -e "${red}wordpress_proxy 可能启动失败，请稍后查看日志信息${plain}"
         fi
         first_install=false
     fi
 
-    if [[ ! -f /etc/V2bX/dns.json ]]; then
-        cp dns.json /etc/V2bX/
+    if [[ ! -f /etc/wordpress_proxy/dns.json ]]; then
+        cp dns.json /etc/wordpress_proxy/
     fi
-    if [[ ! -f /etc/V2bX/route.json ]]; then
-        cp route.json /etc/V2bX/
+    if [[ ! -f /etc/wordpress_proxy/route.json ]]; then
+        cp route.json /etc/wordpress_proxy/
     fi
-    if [[ ! -f /etc/V2bX/custom_outbound.json ]]; then
-        cp custom_outbound.json /etc/V2bX/
+    if [[ ! -f /etc/wordpress_proxy/custom_outbound.json ]]; then
+        cp custom_outbound.json /etc/wordpress_proxy/
     fi
-    if [[ ! -f /etc/V2bX/custom_inbound.json ]]; then
-        cp custom_inbound.json /etc/V2bX/
+    if [[ ! -f /etc/wordpress_proxy/custom_inbound.json ]]; then
+        cp custom_inbound.json /etc/wordpress_proxy/
     fi
-    curl -o /usr/bin/V2bX -Ls https://raw.githubusercontent.com/wyx2685/V2bX-script/master/V2bX.sh
-    chmod +x /usr/bin/V2bX
-    if [ ! -L /usr/bin/v2bx ]; then
-        ln -s /usr/bin/V2bX /usr/bin/v2bx
-        chmod +x /usr/bin/v2bx
+
+    curl -o /usr/bin/wordpress_proxy -Ls https://raw.githubusercontent.com/wyx2685/wordpress_proxy-script/master/wordpress_proxy.sh
+    chmod +x /usr/bin/wordpress_proxy
+    if [ ! -L /usr/bin/wordpress ]; then
+        ln -s /usr/bin/wordpress_proxy /usr/bin/wordpress
+        chmod +x /usr/bin/wordpress
     fi
+
     cd $cur_dir
     rm -f install.sh
     echo -e ""
-    echo "V2bX 管理脚本使用方法 (兼容使用V2bX执行，大小写不敏感): "
+    echo "wordpress_proxy 管理脚本使用方法 (兼容使用 wordpress_proxy 执行，大小写不敏感): "
     echo "------------------------------------------"
-    echo "V2bX              - 显示管理菜单 (功能更多)"
-    echo "V2bX start        - 启动 V2bX"
-    echo "V2bX stop         - 停止 V2bX"
-    echo "V2bX restart      - 重启 V2bX"
-    echo "V2bX status       - 查看 V2bX 状态"
-    echo "V2bX enable       - 设置 V2bX 开机自启"
-    echo "V2bX disable      - 取消 V2bX 开机自启"
-    echo "V2bX log          - 查看 V2bX 日志"
-    echo "V2bX x25519       - 生成 x25519 密钥"
-    echo "V2bX generate     - 生成 V2bX 配置文件"
-    echo "V2bX update       - 更新 V2bX"
-    echo "V2bX update x.x.x - 更新 V2bX 指定版本"
-    echo "V2bX install      - 安装 V2bX"
-    echo "V2bX uninstall    - 卸载 V2bX"
-    echo "V2bX version      - 查看 V2bX 版本"
+    echo "wordpress_proxy          - 显示管理菜单 (功能更多)"
+    echo "wordpress_proxy start    - 启动 wordpress_proxy"
+    echo "wordpress_proxy stop     - 停止 wordpress_proxy"
+    echo "wordpress_proxy restart  - 重启 wordpress_proxy"
+    echo "wordpress_proxy status   - 查看 wordpress_proxy 状态"
+    echo "wordpress_proxy enable   - 设置 wordpress_proxy 开机自启"
+    echo "wordpress_proxy disable  - 取消 wordpress_proxy 开机自启"
+    echo "wordpress_proxy log      - 查看 wordpress_proxy 日志"
+    echo "wordpress_proxy x25519   - 生成 x25519 密钥"
+    echo "wordpress_proxy generate - 生成 wordpress_proxy 配置文件"
+    echo "wordpress_proxy update   - 更新 wordpress_proxy"
+    echo "wordpress_proxy update x.x.x - 更新 wordpress_proxy 指定版本"
+    echo "wordpress_proxy install  - 安装 wordpress_proxy"
+    echo "wordpress_proxy uninstall - 卸载 wordpress_proxy"
+    echo "wordpress_proxy version  - 查看 wordpress_proxy 版本"
     echo "------------------------------------------"
     # 首次安装询问是否生成配置文件
     if [[ $first_install == true ]]; then
-        read -rp "检测到你为第一次安装V2bX,是否自动直接生成配置文件？(y/n): " if_generate
+        read -rp "检测到你为第一次安装 wordpress_proxy,是否自动直接生成配置文件？(y/n): " if_generate
         if [[ $if_generate == [Yy] ]]; then
-            curl -o ./initconfig.sh -Ls https://raw.githubusercontent.com/wyx2685/V2bX-script/master/initconfig.sh
+            curl -o ./initconfig.sh -Ls https://raw.githubusercontent.com/wyx2685/wordpress_proxy-script/master/initconfig.sh
             source initconfig.sh
             rm initconfig.sh -f
             generate_config_file
@@ -287,4 +270,4 @@ EOF
 
 echo -e "${green}开始安装${plain}"
 install_base
-install_V2bX $1
+install_wordpress_proxy $1
