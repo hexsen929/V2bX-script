@@ -1,40 +1,12 @@
 #!/bin/bash
-
 red='\033[0;31m'
 green='\033[0;32m'
 yellow='\033[0;33m'
 plain='\033[0m'
-
 cur_dir=$(pwd)
 
 # check root
 [[ $EUID -ne 0 ]] && echo -e "${red}错误：${plain} 必须使用root用户运行此脚本！\n" && exit 1
-
-# check and install upx
-check_install_upx() {
-    if ! command -v upx &> /dev/null; then
-        echo -e "${yellow}UPX 未安装，正在安装...${plain}"
-        if [[ x"${release}" == x"centos" ]]; then
-            yum install upx -y >/dev/null 2>&1
-        elif [[ x"${release}" == x"alpine" ]]; then
-            apk add upx >/dev/null 2>&1
-        elif [[ x"${release}" == x"debian" ]] || [[ x"${release}" == x"ubuntu" ]]; then
-            apt-get update -y >/dev/null 2>&1
-            apt install upx-ucl -y >/dev/null 2>&1
-        elif [[ x"${release}" == x"arch" ]]; then
-            pacman -S --noconfirm upx >/dev/null 2>&1
-        fi
-        
-        if ! command -v upx &> /dev/null; then
-            echo -e "${red}UPX 安装失败！${plain}"
-            exit 1
-        else
-            echo -e "${green}UPX 安装成功${plain}"
-        fi
-    else
-        echo -e "${green}UPX 已安装${plain}"
-    fi
-}
 
 # check os
 if [[ -f /etc/redhat-release ]]; then
@@ -60,7 +32,6 @@ else
 fi
 
 arch=$(uname -m)
-
 if [[ $arch == "x86_64" || $arch == "x64" || $arch == "amd64" ]]; then
     arch="64"
 elif [[ $arch == "aarch64" || $arch == "arm64" ]]; then
@@ -104,6 +75,43 @@ elif [[ x"${release}" == x"debian" ]]; then
     fi
 fi
 
+# 检测并安装 UPX
+check_and_install_upx() {
+    echo -e "${yellow}检测 UPX 是否已安装...${plain}"
+    
+    if command -v upx >/dev/null 2>&1; then
+        echo -e "${green}UPX 已安装${plain}"
+        return 0
+    fi
+    
+    echo -e "${yellow}UPX 未安装，开始安装...${plain}"
+    
+    if [[ x"${release}" == x"centos" ]]; then
+        yum install upx -y >/dev/null 2>&1
+        if [[ $? -ne 0 ]]; then
+            # 尝试从 EPEL 安装
+            yum install epel-release -y >/dev/null 2>&1
+            yum install upx -y >/dev/null 2>&1
+        fi
+    elif [[ x"${release}" == x"alpine" ]]; then
+        apk add upx >/dev/null 2>&1
+    elif [[ x"${release}" == x"debian" ]] || [[ x"${release}" == x"ubuntu" ]]; then
+        apt-get update -y >/dev/null 2>&1
+        apt install upx -y >/dev/null 2>&1
+    elif [[ x"${release}" == x"arch" ]]; then
+        pacman -S --noconfirm upx >/dev/null 2>&1
+    fi
+    
+    # 检查安装是否成功
+    if command -v upx >/dev/null 2>&1; then
+        echo -e "${green}UPX 安装成功${plain}"
+        return 0
+    else
+        echo -e "${red}UPX 安装失败，将跳过压缩步骤${plain}"
+        return 1
+    fi
+}
+
 install_base() {
     if [[ x"${release}" == x"centos" ]]; then
         yum install epel-release wget curl unzip tar crontabs socat ca-certificates -y >/dev/null 2>&1
@@ -133,14 +141,14 @@ check_status() {
         return 2
     fi
     if [[ x"${release}" == x"alpine" ]]; then
-        temp=$(service myapp status 2>/dev/null | awk '{print $3}')
+        temp=$(service myapp status | awk '{print $3}')
         if [[ x"${temp}" == x"started" ]]; then
             return 0
         else
             return 1
         fi
     else
-        temp=$(systemctl status myapp 2>/dev/null | grep Active | awk '{print $3}' | cut -d "(" -f2 | cut -d ")" -f1)
+        temp=$(systemctl status myapp | grep Active | awk '{print $3}' | cut -d "(" -f2 | cut -d ")" -f1)
         if [[ x"${temp}" == x"running" ]]; then
             return 0
         else
@@ -153,46 +161,51 @@ install_V2bX() {
     if [[ -e /usr/local/myapp/ ]]; then
         rm -rf /usr/local/myapp/
     fi
-
+    
     mkdir /usr/local/myapp/ -p
     cd /usr/local/myapp/
-
+    
     if  [ $# == 0 ] ;then
         last_version=$(curl -Ls "https://api.github.com/repos/wyx2685/V2bX/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [[ ! -n "$last_version" ]]; then
-            echo -e "${red}检测 V2bX 版本失败，可能是超出 Github API 限制，请稍后再试，或手动指定 V2bX 版本安装${plain}"
+            echo -e "${red}检测版本失败，可能是超出 Github API 限制，请稍后再试，或手动指定版本安装${plain}"
             exit 1
         fi
-        echo -e "检测到 V2bX 最新版本：${last_version}，开始安装"
-        wget --no-check-certificate -N --progress=bar -O /usr/local/myapp/V2bX-linux.zip https://github.com/wyx2685/V2bX/releases/download/${last_version}/V2bX-linux-${arch}.zip
+        echo -e "检测到最新版本：${last_version}，开始安装"
+        wget --no-check-certificate -N --progress=bar -O /usr/local/myapp/package-linux.zip https://github.com/wyx2685/V2bX/releases/download/${last_version}/V2bX-linux-${arch}.zip
         if [[ $? -ne 0 ]]; then
-            echo -e "${red}下载 V2bX 失败，请确保你的服务器能够下载 Github 的文件${plain}"
+            echo -e "${red}下载失败，请确保你的服务器能够下载 Github 的文件${plain}"
             exit 1
         fi
     else
         last_version=$1
         url="https://github.com/wyx2685/V2bX/releases/download/${last_version}/V2bX-linux-${arch}.zip"
-        echo -e "开始安装 V2bX $1"
-        wget --no-check-certificate -N --progress=bar -O /usr/local/myapp/V2bX-linux.zip ${url}
+        echo -e "开始安装版本 $1"
+        wget --no-check-certificate -N --progress=bar -O /usr/local/myapp/package-linux.zip ${url}
         if [[ $? -ne 0 ]]; then
-            echo -e "${red}下载 V2bX $1 失败，请确保此版本存在${plain}"
+            echo -e "${red}下载版本 $1 失败，请确保此版本存在${plain}"
             exit 1
         fi
     fi
-
-    unzip V2bX-linux.zip
-    rm V2bX-linux.zip -f
     
-    # 重命名并加壳
-    mv V2bX myapp
-    echo -e "${yellow}正在使用UPX加壳程序...${plain}"
-    if timeout 30 upx -1 myapp >/dev/null 2>&1; then
-        echo -e "${green}程序加壳成功${plain}"
-    else
-        echo -e "${yellow}UPX加壳失败，继续安装原程序${plain}"
+    unzip package-linux.zip
+    rm package-linux.zip -f
+    
+    # 检查 UPX 是否可用，如果可用则压缩主程序
+    if command -v upx >/dev/null 2>&1; then
+        echo -e "${yellow}使用 UPX 压缩程序...${plain}"
+        upx --best --lzma V2bX >/dev/null 2>&1
+        if [[ $? -eq 0 ]]; then
+            echo -e "${green}程序压缩成功${plain}"
+        else
+            echo -e "${yellow}程序压缩失败，继续安装${plain}"
+        fi
     fi
     
+    # 重命名主程序
+    mv V2bX myapp
     chmod +x myapp
+    
     mkdir /etc/myapp/ -p
     cp geoip.dat /etc/myapp/
     cp geosite.dat /etc/myapp/
@@ -201,29 +214,25 @@ install_V2bX() {
         rm /etc/init.d/myapp -f
         cat <<EOF > /etc/init.d/myapp
 #!/sbin/openrc-run
-
 name="myapp"
-description="Network Service"
-
+description="MyApp Service"
 command="/usr/local/myapp/myapp"
 command_args="server"
 command_user="root"
-
 pidfile="/run/myapp.pid"
 command_background="yes"
-
 depend() {
         need net
 }
 EOF
         chmod +x /etc/init.d/myapp
         rc-update add myapp default
-        echo -e "${green}V2bX ${last_version}${plain} 安装完成，已设置开机自启"
+        echo -e "${green}MyApp ${last_version}${plain} 安装完成，已设置开机自启"
     else
         rm /etc/systemd/system/myapp.service -f
         cat <<EOF > /etc/systemd/system/myapp.service
 [Unit]
-Description=Network Service
+Description=MyApp Service
 After=network.target nss-lookup.target
 Wants=network.target
 
@@ -246,13 +255,13 @@ EOF
         systemctl daemon-reload
         systemctl stop myapp
         systemctl enable myapp
-        echo -e "${green}V2bX ${last_version}${plain} 安装完成，已设置开机自启"
+        echo -e "${green}MyApp ${last_version}${plain} 安装完成，已设置开机自启"
     fi
-
+    
     if [[ ! -f /etc/myapp/config.json ]]; then
         cp config.json /etc/myapp/
         echo -e ""
-        echo -e "全新安装，请先参看教程：https://v2bx.v-50.me/，配置必要的内容"
+        echo -e "全新安装，请先配置必要的内容"
         first_install=true
     else
         if [[ x"${release}" == x"alpine" ]]; then
@@ -264,13 +273,13 @@ EOF
         check_status
         echo -e ""
         if [[ $? == 0 ]]; then
-            echo -e "${green}V2bX 重启成功${plain}"
+            echo -e "${green}MyApp 重启成功${plain}"
         else
-            echo -e "${red}V2bX 可能启动失败，请稍后使用 myapp log 查看日志信息，若无法启动，则可能更改了配置格式，请前往 wiki 查看：https://github.com/V2bX-project/V2bX/wiki${plain}"
+            echo -e "${red}MyApp 可能启动失败，请稍后检查日志信息${plain}"
         fi
         first_install=false
     fi
-
+    
     if [[ ! -f /etc/myapp/dns.json ]]; then
         cp dns.json /etc/myapp/
     fi
@@ -284,165 +293,133 @@ EOF
         cp custom_inbound.json /etc/myapp/
     fi
     
-    # 创建兼容的管理脚本，保留所有原功能
-    cat <<'EOF' > /usr/bin/myapp
-#!/bin/bash
-
-red='\033[0;31m'
-green='\033[0;32m'
-yellow='\033[0;33m'
-plain='\033[0m'
-
-# 检查状态函数
-check_status() {
-    if [[ ! -f /usr/local/myapp/myapp ]]; then
-        return 2
-    fi
-    temp=$(systemctl status myapp 2>/dev/null | grep Active | awk '{print $3}' | cut -d "(" -f2 | cut -d ")" -f1)
-    if [[ x"${temp}" == x"running" ]]; then
-        return 0
+    # 下载管理脚本（修改其中的敏感字样）
+    curl -o /usr/bin/V2bX -Ls https://raw.githubusercontent.com/wyx2685/V2bX-script/master/V2bX.sh
+    if [[ $? -eq 0 ]]; then
+        # 替换管理脚本中的敏感字样
+        sed -i 's/V2bX/myapp/g' /usr/bin/V2bX
+        sed -i 's/v2bx/myapp/g' /usr/bin/V2bX
+        sed -i 's/\/usr\/local\/V2bX\//\/usr\/local\/myapp\//g' /usr/bin/V2bX
+        sed -i 's/\/etc\/V2bX\//\/etc\/myapp\//g' /usr/bin/V2bX
+        chmod +x /usr/bin/V2bX
+        
+        # 创建软链接
+        if [ ! -L /usr/bin/myapp ]; then
+            ln -s /usr/bin/V2bX /usr/bin/myapp
+            chmod +x /usr/bin/myapp
+        fi
     else
-        return 1
-    fi
-}
-
-# 显示状态
-show_status() {
-    check_status
-    case $? in
-        0)
-            echo -e "V2bX 状态: ${green}已运行${plain}"
-            ;;
-        1)
-            echo -e "V2bX 状态: ${yellow}未运行${plain}"
-            ;;
-        2)
-            echo -e "V2bX 状态: ${red}未安装${plain}"
-            ;;
-    esac
-}
-
-# 生成x25519密钥
-generate_x25519() {
-    echo "生成 x25519 密钥："
-    /usr/local/myapp/myapp x25519
-}
-
-case "${1}" in
-    "start")
-        systemctl start myapp
-        echo -e "${green}V2bX 启动成功${plain}"
+        echo -e "${yellow}管理脚本下载失败，创建简单管理脚本${plain}"
+        # 创建简单的管理脚本作为备用
+        cat <<EOF > /usr/bin/myapp
+#!/bin/bash
+case "\$1" in
+    start)
+        if [[ x"\$(uname -s)" == x"Linux" ]]; then
+            if [[ -f /etc/alpine-release ]]; then
+                service myapp start
+            else
+                systemctl start myapp
+            fi
+        fi
         ;;
-    "stop")
-        systemctl stop myapp
-        echo -e "${yellow}V2bX 停止成功${plain}"
+    stop)
+        if [[ x"\$(uname -s)" == x"Linux" ]]; then
+            if [[ -f /etc/alpine-release ]]; then
+                service myapp stop
+            else
+                systemctl stop myapp
+            fi
+        fi
         ;;
-    "restart")
-        systemctl restart myapp
-        echo -e "${green}V2bX 重启成功${plain}"
+    restart)
+        if [[ x"\$(uname -s)" == x"Linux" ]]; then
+            if [[ -f /etc/alpine-release ]]; then
+                service myapp restart
+            else
+                systemctl restart myapp
+            fi
+        fi
         ;;
-    "status")
-        show_status
+    status)
+        if [[ x"\$(uname -s)" == x"Linux" ]]; then
+            if [[ -f /etc/alpine-release ]]; then
+                service myapp status
+            else
+                systemctl status myapp
+            fi
+        fi
         ;;
-    "enable")
-        systemctl enable myapp
-        echo -e "${green}V2bX 开机自启设置成功${plain}"
-        ;;
-    "disable")
-        systemctl disable myapp
-        echo -e "${yellow}V2bX 取消开机自启成功${plain}"
-        ;;
-    "log")
-        journalctl -f -u myapp --no-pager
-        ;;
-    "x25519")
-        generate_x25519
-        ;;
-    "generate")
-        echo -e "${yellow}配置生成功能需要手动配置，请参考文档${plain}"
-        ;;
-    "update")
-        echo -e "${yellow}更新功能暂不支持，请重新运行安装脚本${plain}"
-        ;;
-    "install")
-        echo -e "${yellow}请运行原始安装脚本${plain}"
-        ;;
-    "uninstall")
-        systemctl stop myapp
-        systemctl disable myapp
-        rm -rf /usr/local/myapp/
-        rm -rf /etc/myapp/
-        rm -f /etc/systemd/system/myapp.service
-        rm -f /usr/bin/myapp
-        systemctl daemon-reload
-        echo -e "${green}V2bX 卸载完成${plain}"
-        ;;
-    "version")
-        /usr/local/myapp/myapp version
+    log)
+        if [[ x"\$(uname -s)" == x"Linux" ]]; then
+            if [[ -f /etc/alpine-release ]]; then
+                tail -f /var/log/messages | grep myapp
+            else
+                journalctl -f -u myapp
+            fi
+        fi
         ;;
     *)
-        echo "V2bX 管理脚本使用方法: "
-        echo "------------------------------------------"
-        echo "myapp              - 显示管理菜单"
-        echo "myapp start        - 启动 V2bX"
-        echo "myapp stop         - 停止 V2bX"
-        echo "myapp restart      - 重启 V2bX"
-        echo "myapp status       - 查看 V2bX 状态"
-        echo "myapp enable       - 设置 V2bX 开机自启"
-        echo "myapp disable      - 取消 V2bX 开机自启"
-        echo "myapp log          - 查看 V2bX 日志"
-        echo "myapp x25519       - 生成 x25519 密钥"
-        echo "myapp generate     - 生成 V2bX 配置文件"
-        echo "myapp update       - 更新 V2bX"
-        echo "myapp install      - 安装 V2bX"
-        echo "myapp uninstall    - 卸载 V2bX"
-        echo "myapp version      - 查看 V2bX 版本"
-        echo "------------------------------------------"
+        echo "使用方法: myapp {start|stop|restart|status|log}"
         ;;
 esac
 EOF
-    
-    chmod +x /usr/bin/myapp
-    
-    # 创建兼容链接
-    if [ ! -L /usr/bin/v2bx ]; then
-        ln -s /usr/bin/myapp /usr/bin/v2bx
-        chmod +x /usr/bin/v2bx
+        chmod +x /usr/bin/myapp
     fi
     
     cd $cur_dir
     rm -f install.sh
-    echo -e ""
-    echo "V2bX 管理脚本使用方法 (兼容使用myapp执行): "
+    
+    echo "MyApp 管理脚本使用方法 (兼容使用myapp执行，大小写不敏感): "
     echo "------------------------------------------"
     echo "myapp              - 显示管理菜单 (功能更多)"
-    echo "myapp start        - 启动 V2bX"
-    echo "myapp stop         - 停止 V2bX"
-    echo "myapp restart      - 重启 V2bX"
-    echo "myapp status       - 查看 V2bX 状态"
-    echo "myapp enable       - 设置 V2bX 开机自启"
-    echo "myapp disable      - 取消 V2bX 开机自启"
-    echo "myapp log          - 查看 V2bX 日志"
+    echo "myapp start        - 启动 MyApp"
+    echo "myapp stop         - 停止 MyApp"
+    echo "myapp restart      - 重启 MyApp"
+    echo "myapp status       - 查看 MyApp 状态"
+    echo "myapp enable       - 设置 MyApp 开机自启"
+    echo "myapp disable      - 取消 MyApp 开机自启"
+    echo "myapp log          - 查看 MyApp 日志"
     echo "myapp x25519       - 生成 x25519 密钥"
-    echo "myapp generate     - 生成 V2bX 配置文件"
-    echo "myapp update       - 更新 V2bX"
-    echo "myapp install      - 安装 V2bX"
-    echo "myapp uninstall    - 卸载 V2bX"
-    echo "myapp version      - 查看 V2bX 版本"
+    echo "myapp generate     - 生成 MyApp 配置文件"
+    echo "myapp update       - 更新 MyApp"
+    echo "myapp update x.x.x - 更新 MyApp 指定版本"
+    echo "myapp install      - 安装 MyApp"
+    echo "myapp uninstall    - 卸载 MyApp"
+    echo "myapp version      - 查看 MyApp 版本"
     echo "------------------------------------------"
+    
     # 首次安装询问是否生成配置文件
     if [[ $first_install == true ]]; then
-        read -rp "检测到你为第一次安装V2bX,是否自动直接生成配置文件？(y/n): " if_generate
+        read -rp "检测到你为第一次安装MyApp,是否自动直接生成配置文件？(y/n): " if_generate
         if [[ $if_generate == [Yy] ]]; then
             curl -o ./initconfig.sh -Ls https://raw.githubusercontent.com/wyx2685/V2bX-script/master/initconfig.sh
-            source initconfig.sh
-            rm initconfig.sh -f
-            generate_config_file
+            if [[ $? -eq 0 ]]; then
+                # 只替换路径相关的敏感字样，保持函数名和变量名不变
+                sed -i 's/\/usr\/local\/V2bX\//\/usr\/local\/myapp\//g' initconfig.sh
+                sed -i 's/\/etc\/V2bX\//\/etc\/myapp\//g' initconfig.sh
+                # 替换服务名
+                sed -i 's/systemctl restart V2bX/systemctl restart myapp/g' initconfig.sh
+                sed -i 's/systemctl start V2bX/systemctl start myapp/g' initconfig.sh
+                sed -i 's/service V2bX restart/service myapp restart/g' initconfig.sh
+                sed -i 's/service V2bX start/service myapp start/g' initconfig.sh
+                source initconfig.sh
+                rm initconfig.sh -f
+                generate_config_file
+            else
+                echo -e "${yellow}配置脚本下载失败，请手动配置 /etc/myapp/config.json 文件${plain}"
+            fi
         fi
     fi
 }
 
 echo -e "${green}开始安装${plain}"
-check_install_upx
+
+# 检测并安装 UPX
+check_and_install_upx
+
+# 安装基础包
 install_base
+
+# 安装主程序
 install_V2bX $1
