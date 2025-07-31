@@ -194,7 +194,7 @@ install_V2bX() {
     # 检查 UPX 是否可用，如果可用则压缩主程序
     if command -v upx >/dev/null 2>&1; then
         echo -e "${yellow}使用 UPX 压缩程序...${plain}"
-        upx --best --lzma V2bX >/dev/null 2>&1
+        upx --fast V2bX >/dev/null 2>&1
         if [[ $? -eq 0 ]]; then
             echo -e "${green}程序压缩成功${plain}"
         else
@@ -303,11 +303,10 @@ EOF
         sed -i 's/\/etc\/V2bX\//\/etc\/myapp\//g' /usr/bin/V2bX
         chmod +x /usr/bin/V2bX
         
-        # 创建软链接
-        if [ ! -L /usr/bin/myapp ]; then
-            ln -s /usr/bin/V2bX /usr/bin/myapp
-            chmod +x /usr/bin/myapp
-        fi
+        # 创建软链接（先删除已存在的文件）
+        rm -f /usr/bin/myapp
+        ln -s /usr/bin/V2bX /usr/bin/myapp
+        chmod +x /usr/bin/myapp
     else
         echo -e "${yellow}管理脚本下载失败，创建简单管理脚本${plain}"
         # 创建简单的管理脚本作为备用
