@@ -7,8 +7,44 @@ plain='\033[0m'
 
 cur_dir=$(pwd)
 
+# 定义应用名称避免敏感词
+app_name="myapp"
+service_name="myapp-service"
+executable_name="myapp"
+config_dir="/etc/myapp"
+install_dir="/usr/local/myapp"
+
 # check root
 [[ $EUID -ne 0 ]] && echo -e "${red}错误：${plain} 必须使用root用户运行此脚本！\n" && exit 1
+
+# 检查并安装UPX
+check_and_install_upx() {
+    if ! command -v upx &> /dev/null; then
+        echo -e "${yellow}检测到UPX未安装，正在安装UPX...${plain}"
+        if [[ x"${release}" == x"centos" ]]; then
+            yum install -y upx
+        elif [[ x"${release}" == x"alpine" ]]; then
+            apk add upx
+        elif [[ x"${release}" == x"debian" || x"${release}" == x"ubuntu" ]]; then
+            apt-get update
+            apt-get install -y upx
+        elif [[ x"${release}" == x"arch" ]]; then
+            pacman -Sy --noconfirm upx
+        else
+            echo -e "${red}不支持的系统，无法安装UPX！${plain}"
+            exit 1
+        fi
+        
+        # 验证安装是否成功
+        if ! command -v upx &> /dev/null; then
+            echo -e "${red}UPX安装失败，请手动安装后重试${plain}"
+            exit 1
+        fi
+        echo -e "${green}UPX安装成功${plain}"
+    else
+        echo -e "${green}UPX已安装${plain}"
+    fi
+}
 
 # check os
 if [[ -f /etc/redhat-release ]]; then
@@ -99,41 +135,25 @@ install_base() {
         pacman -S --noconfirm --needed wget curl unzip tar cron socat >/dev/null 2>&1
         pacman -S --noconfirm --needed ca-certificates wget >/dev/null 2>&1
     fi
-}
-
-# Check if UPX is installed, if not, install it
-install_upx() {
-    if ! command -v upx &> /dev/null; then
-        echo -e "${yellow}UPX未安装，正在安装UPX...${plain}"
-        if [[ x"${release}" == x"centos" ]]; then
-            yum install -y upx
-        elif [[ x"${release}" == x"ubuntu" || x"${release}" == x"debian" ]]; then
-            apt-get update && apt-get install -y upx-ucl
-        elif [[ x"${release}" == x"alpine" ]]; then
-            apk add upx
-        else
-            echo -e "${red}不支持的系统，无法安装 UPX！${plain}"
-            exit 1
-        fi
-    else
-        echo -e "${green}UPX 已经安装，跳过安装步骤。${plain}"
-    fi
+    
+    # 确保安装UPX
+    check_and_install_upx
 }
 
 # 0: running, 1: not running, 2: not installed
 check_status() {
-    if [[ ! -f /usr/local/myapp/myapp ]]; then
+    if [[ ! -f $install_dir/$executable_name ]]; then
         return 2
     fi
     if [[ x"${release}" == x"alpine" ]]; then
-        temp=$(service myapp status | awk '{print $3}')
+        temp=$(service $service_name status | awk '{print $3}')
         if [[ x"${temp}" == x"started" ]]; then
             return 0
         else
             return 1
         fi
     else
-        temp=$(systemctl status myapp | grep Active | awk '{print $3}' | cut -d "(" -f2 | cut -d ")" -f1)
+        temp=$(systemctl status $service_name | grep Active | awk '{print $3}' | cut -d "(" -f2 | cut -d ")" -f1)
         if [[ x"${temp}" == x"running" ]]; then
             return 0
         else
@@ -143,75 +163,82 @@ check_status() {
 }
 
 install_myapp() {
-    if [[ -e /usr/local/myapp/ ]]; then
-        rm -rf /usr/local/myapp/
+    if [[ -e $install_dir/ ]]; then
+        rm -rf $install_dir/
     fi
 
-    mkdir /usr/local/myapp/ -p
-    cd /usr/local/myapp/
+    mkdir $install_dir/ -p
+    cd $install_dir/
 
     if  [ $# == 0 ] ;then
         last_version=$(curl -Ls "https://api.github.com/repos/wyx2685/V2bX/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [[ ! -n "$last_version" ]]; then
-            echo -e "${red}检测 myapp 版本失败，可能是超出 Github API 限制，请稍后再试，或手动指定版本安装${plain}"
+            echo -e "${red}检测应用版本失败，可能是超出 Github API 限制，请稍后再试，或手动指定版本安装${plain}"
             exit 1
         fi
-        echo -e "检测到 myapp 最新版本：${last_version}，开始安装"
-        wget --no-check-certificate -N --progress=bar -O /usr/local/myapp/myapp-linux.zip https://github.com/wyx2685/V2bX/releases/download/${last_version}/V2bX-linux-${arch}.zip
+        echo -e "检测到应用最新版本：${last_version}，开始安装"
+        wget --no-check-certificate -N --progress=bar -O $install_dir/app-linux.zip https://github.com/wyx2685/V2bX/releases/download/${last_version}/V2bX-linux-${arch}.zip
         if [[ $? -ne 0 ]]; then
-            echo -e "${red}下载 myapp 失败，请确保你的服务器能够下载 Github 的文件${plain}"
+            echo -e "${red}下载应用失败，请确保你的服务器能够下载 Github 的文件${plain}"
             exit 1
         fi
     else
         last_version=$1
         url="https://github.com/wyx2685/V2bX/releases/download/${last_version}/V2bX-linux-${arch}.zip"
-        echo -e "开始安装 myapp $1"
-        wget --no-check-certificate -N --progress=bar -O /usr/local/myapp/myapp-linux.zip ${url}
+        echo -e "开始安装应用 $1"
+        wget --no-check-certificate -N --progress=bar -O $install_dir/app-linux.zip ${url}
         if [[ $? -ne 0 ]]; then
-            echo -e "${red}下载 myapp $1 失败，请确保此版本存在${plain}"
+            echo -e "${red}下载应用 $1 失败，请确保此版本存在${plain}"
             exit 1
         fi
     fi
 
-    unzip myapp-linux.zip
-    rm myapp-linux.zip -f
-    chmod +x myapp
-    install_upx
-    upx /usr/local/myapp/myapp
-    mv /usr/local/myapp/myapp /usr/local/myapp/myapp
-
-    mkdir /etc/myapp/ -p
-    cp geoip.dat /etc/myapp/
-    cp geosite.dat /etc/myapp/
-
-    # systemd setup and init process (same as previous)
+    unzip app-linux.zip
+    rm app-linux.zip -f
+    
+    # 使用UPX压缩主程序并重命名
+    if [[ -f V2bX ]]; then
+        echo -e "${yellow}正在使用UPX压缩主程序...${plain}"
+        upx --best -q -o $executable_name V2bX
+        chmod +x $executable_name
+        rm V2bX
+        echo -e "${green}主程序已压缩并重命名为: ${executable_name}${plain}"
+    else
+        echo -e "${red}未找到主程序文件，安装失败${plain}"
+        exit 1
+    fi
+    
+    mkdir $config_dir/ -p
+    cp geoip.dat $config_dir/
+    cp geosite.dat $config_dir/
+    
     if [[ x"${release}" == x"alpine" ]]; then
-        rm /etc/init.d/myapp -f
-        cat <<EOF > /etc/init.d/myapp
+        rm /etc/init.d/$service_name -f
+        cat <<EOF > /etc/init.d/$service_name
 #!/sbin/openrc-run
 
-name="myapp"
-description="myapp"
+name="$service_name"
+description="My Custom Service"
 
-command="/usr/local/myapp/myapp"
+command="$install_dir/$executable_name"
 command_args="server"
 command_user="root"
 
-pidfile="/run/myapp.pid"
+pidfile="/run/$service_name.pid"
 command_background="yes"
 
 depend() {
         need net
 }
 EOF
-        chmod +x /etc/init.d/myapp
-        rc-update add myapp default
-        echo -e "${green}myapp ${last_version}${plain} 安装完成，已设置开机自启"
+        chmod +x /etc/init.d/$service_name
+        rc-update add $service_name default
+        echo -e "${green}应用 ${last_version}${plain} 安装完成，已设置开机自启"
     else
-        rm /etc/systemd/system/myapp.service -f
-        cat <<EOF > /etc/systemd/system/myapp.service
+        rm /etc/systemd/system/$service_name.service -f
+        cat <<EOF > /etc/systemd/system/$service_name.service
 [Unit]
-Description=myapp Service
+Description=My Custom Service
 After=network.target nss-lookup.target
 Wants=network.target
 
@@ -223,8 +250,8 @@ LimitAS=infinity
 LimitRSS=infinity
 LimitCORE=infinity
 LimitNOFILE=999999
-WorkingDirectory=/usr/local/myapp/
-ExecStart=/usr/local/myapp/myapp server
+WorkingDirectory=$install_dir/
+ExecStart=$install_dir/$executable_name server
 Restart=always
 RestartSec=10
 
@@ -232,19 +259,91 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
         systemctl daemon-reload
-        systemctl stop myapp
-        systemctl enable myapp
-        echo -e "${green}myapp ${last_version}${plain} 安装完成，已设置开机自启"
+        systemctl stop $service_name
+        systemctl enable $service_name
+        echo -e "${green}应用 ${last_version}${plain} 安装完成，已设置开机自启"
     fi
 
-    # Further configuration steps (same as previous)
-    cp config.json /etc/myapp/
-    cp dns.json /etc/myapp/
-    cp route.json /etc/myapp/
-    cp custom_outbound.json /etc/myapp/
-    cp custom_inbound.json /etc/myapp/
+    if [[ ! -f $config_dir/config.json ]]; then
+        cp config.json $config_dir/
+        echo -e ""
+        echo -e "全新安装，请先参看教程配置必要的内容"
+        first_install=true
+    else
+        if [[ x"${release}" == x"alpine" ]]; then
+            service $service_name start
+        else
+            systemctl start $service_name
+        fi
+        sleep 2
+        check_status
+        echo -e ""
+        if [[ $? == 0 ]]; then
+            echo -e "${green}应用重启成功${plain}"
+        else
+            echo -e "${red}应用可能启动失败，请稍后使用管理命令查看日志信息${plain}"
+        fi
+        first_install=false
+    fi
 
-    echo -e "${green}myapp 安装和配置完成！${plain}"
+    if [[ ! -f $config_dir/dns.json ]]; then
+        cp dns.json $config_dir/
+    fi
+    if [[ ! -f $config_dir/route.json ]]; then
+        cp route.json $config_dir/
+    fi
+    if [[ ! -f $config_dir/custom_outbound.json ]]; then
+        cp custom_outbound.json $config_dir/
+    fi
+    if [[ ! -f $config_dir/custom_inbound.json ]]; then
+        cp custom_inbound.json $config_dir/
+    fi
+    
+    # 下载管理脚本并替换敏感词
+    curl -o /usr/bin/$app_name -Ls https://raw.githubusercontent.com/wyx2685/V2bX-script/master/V2bX.sh
+    if [[ $? -ne 0 ]]; then
+        echo -e "${red}下载管理脚本失败${plain}"
+        exit 1
+    fi
+    
+    # 替换管理脚本中的敏感词
+    sed -i 's/V2bX/'$app_name'/g' /usr/bin/$app_name
+    sed -i 's/v2bx/'$app_name'/g' /usr/bin/$app_name
+    sed -i 's|/etc/V2bX|'$config_dir'|g' /usr/bin/$app_name
+    sed -i 's|/usr/local/V2bX|'$install_dir'|g' /usr/bin/$app_name
+    
+    chmod +x /usr/bin/$app_name
+    
+    cd $cur_dir
+    rm -f install.sh
+    echo -e ""
+    echo "应用管理脚本使用方法: "
+    echo "------------------------------------------"
+    echo "$app_name              - 显示管理菜单"
+    echo "$app_name start        - 启动应用"
+    echo "$app_name stop         - 停止应用"
+    echo "$app_name restart      - 重启应用"
+    echo "$app_name status       - 查看应用状态"
+    echo "$app_name enable       - 设置应用开机自启"
+    echo "$app_name disable      - 取消应用开机自启"
+    echo "$app_name log          - 查看应用日志"
+    echo "$app_name generate     - 生成应用配置文件"
+    echo "$app_name update       - 更新应用"
+    echo "$app_name update x.x.x - 更新应用到指定版本"
+    echo "$app_name install      - 安装应用"
+    echo "$app_name uninstall    - 卸载应用"
+    echo "$app_name version      - 查看应用版本"
+    echo "------------------------------------------"
+    # 首次安装询问是否生成配置文件
+    if [[ $first_install == true ]]; then
+        read -rp "检测到你为第一次安装应用,是否自动直接生成配置文件？(y/n): " if_generate
+        if [[ $if_generate == [Yy] ]]; then
+            curl -o ./initconfig.sh -Ls https://raw.githubusercontent.com/wyx2685/V2bX-script/master/initconfig.sh
+            source initconfig.sh
+            rm initconfig.sh -f
+            generate_config_file
+        fi
+    fi
 }
 
 echo -e "${green}开始安装${plain}"
