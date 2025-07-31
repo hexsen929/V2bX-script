@@ -179,9 +179,46 @@ install_V2bX() {
     unzip app-linux.zip
     rm app-linux.zip -f
     
-    # 重命名主程序
+    # 重命名主程序并压缩
     mv V2bX myapp
-    echo -e "${green}程序重命名完成${plain}"
+    echo -e "${yellow}正在使用UPX压缩程序...${plain}"
+    
+    # 首先检查文件是否已经被压缩过
+    if upx -t myapp >/dev/null 2>&1; then
+        echo -e "${green}程序已被压缩，跳过压缩步骤${plain}"
+    else
+        # 尝试不同的压缩级别
+        echo -n "尝试最佳压缩..."
+        if timeout 120 upx --best --lzma myapp >/dev/null 2>&1; then
+            echo -e " ${green}成功${plain}"
+        else
+            echo -e " ${yellow}失败，尝试标准压缩...${plain}"
+            if timeout 60 upx -9 myapp >/dev/null 2>&1; then
+                echo -e "${green}标准压缩成功${plain}"
+            else
+                echo -e "${yellow}失败，尝试快速压缩...${plain}"
+                if timeout 30 upx -1 myapp >/dev/null 2>&1; then
+                    echo -e "${green}快速压缩成功${plain}"
+                else
+                    echo -e "${red}所有压缩方式都失败，可能原因：${plain}"
+                    echo -e "1. 程序架构不兼容"
+                    echo -e "2. 程序已经被加壳"
+                    echo -e "3. UPX版本不支持"
+                    echo -e "${yellow}继续安装未压缩版本...${plain}"
+                fi
+            fi
+        fi
+    fi
+    
+    # 显示压缩结果
+    original_size=$(stat -c%s V2bX 2>/dev/null || echo "unknown")
+    compressed_size=$(stat -c%s myapp 2>/dev/null || echo "unknown")
+    if [[ "$original_size" != "unknown" ]] && [[ "$compressed_size" != "unknown" ]]; then
+        if [[ $compressed_size -lt $original_size ]]; then
+            reduction=$((100 - (compressed_size * 100 / original_size)))
+            echo -e "${green}压缩完成，文件大小减少了 ${reduction}%${plain}"
+        fi
+    fi
     
     chmod +x myapp
     mkdir /etc/myapp/ -p
