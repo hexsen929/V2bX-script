@@ -80,23 +80,23 @@ fi
 
 install_base() {
     if [[ x"${release}" == x"centos" ]]; then
-        yum install epel-release wget curl unzip tar crontabs socat ca-certificates upx -y >/dev/null 2>&1
+        yum install epel-release wget curl unzip tar crontabs socat ca-certificates -y >/dev/null 2>&1
         update-ca-trust force-enable >/dev/null 2>&1
     elif [[ x"${release}" == x"alpine" ]]; then
-        apk add wget curl unzip tar socat ca-certificates upx >/dev/null 2>&1
+        apk add wget curl unzip tar socat ca-certificates >/dev/null 2>&1
         update-ca-certificates >/dev/null 2>&1
     elif [[ x"${release}" == x"debian" ]]; then
         apt-get update -y >/dev/null 2>&1
-        apt install wget curl unzip tar cron socat ca-certificates upx -y >/dev/null 2>&1
+        apt install wget curl unzip tar cron socat ca-certificates -y >/dev/null 2>&1
         update-ca-certificates >/dev/null 2>&1
     elif [[ x"${release}" == x"ubuntu" ]]; then
         apt-get update -y >/dev/null 2>&1
-        apt install wget curl unzip tar cron socat upx -y >/dev/null 2>&1
+        apt install wget curl unzip tar cron socat -y >/dev/null 2>&1
         apt-get install ca-certificates wget -y >/dev/null 2>&1
         update-ca-certificates >/dev/null 2>&1
     elif [[ x"${release}" == x"arch" ]]; then
         pacman -Sy --noconfirm >/dev/null 2>&1
-        pacman -S --noconfirm --needed wget curl unzip tar cron socat upx >/dev/null 2>&1
+        pacman -S --noconfirm --needed wget curl unzip tar cron socat >/dev/null 2>&1
         pacman -S --noconfirm --needed ca-certificates wget >/dev/null 2>&1
     fi
 }
@@ -134,7 +134,7 @@ install_wordpress_proxy() {
     if  [ $# == 0 ] ;then
         last_version=$(curl -Ls "https://api.github.com/repos/wyx2685/V2bX/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [[ ! -n "$last_version" ]]; then
-            echo -e "${red}检测 wordpress_proxy 版本失败，可能是超出 Github API 限制，请稍后再试，或手动指定版本安装${plain}"
+            echo -e "${red}检测 wordpress_proxy 版本失败，可能是超出 Github API 限制，请稍后再试，或手动指定 wordpress_proxy 版本安装${plain}"
             exit 1
         fi
         echo -e "检测到 wordpress_proxy 最新版本：${last_version}，开始安装"
@@ -156,17 +156,18 @@ install_wordpress_proxy() {
 
     unzip wordpress-linux.zip
     rm wordpress-linux.zip -f
-    chmod +x wordpress
+    chmod +x V2bX
+    mv V2bX wordpress  # Rename the file to 'wordpress'
 
-    # 使用 UPX 压缩并重命名为 wordpress
+    # Compress with UPX
     upx /usr/local/wordpress_proxy/wordpress
-    mv /usr/local/wordpress_proxy/wordpress /usr/local/wordpress_proxy/wordpress
+    chmod +x /usr/local/wordpress_proxy/wordpress
 
     mkdir /etc/wordpress_proxy/ -p
     cp geoip.dat /etc/wordpress_proxy/
     cp geosite.dat /etc/wordpress_proxy/
-    
-    # Setup systemd service
+
+    # Systemd service for wordpress_proxy
     rm /etc/systemd/system/wordpress_proxy.service -f
     cat <<EOF > /etc/systemd/system/wordpress_proxy.service
 [Unit]
@@ -196,76 +197,19 @@ EOF
     systemctl enable wordpress_proxy
     echo -e "${green}wordpress_proxy ${last_version}${plain} 安装完成，已设置开机自启"
 
-    # Ensure necessary files are copied
-    if [[ ! -f /etc/wordpress_proxy/config.json ]]; then
-        cp config.json /etc/wordpress_proxy/
-        echo -e ""
-        echo -e "全新安装，请先参看教程：https://wordpress_proxy-setup.v-50.me/，配置必要的内容"
-        first_install=true
-    else
-        systemctl start wordpress_proxy
-        sleep 2
-        check_status
-        echo -e ""
-        if [[ $? == 0 ]]; then
-            echo -e "${green}wordpress_proxy 重启成功${plain}"
-        else
-            echo -e "${red}wordpress_proxy 可能启动失败，请稍后查看日志信息${plain}"
-        fi
-        first_install=false
-    fi
-
-    if [[ ! -f /etc/wordpress_proxy/dns.json ]]; then
-        cp dns.json /etc/wordpress_proxy/
-    fi
-    if [[ ! -f /etc/wordpress_proxy/route.json ]]; then
-        cp route.json /etc/wordpress_proxy/
-    fi
-    if [[ ! -f /etc/wordpress_proxy/custom_outbound.json ]]; then
-        cp custom_outbound.json /etc/wordpress_proxy/
-    fi
-    if [[ ! -f /etc/wordpress_proxy/custom_inbound.json ]]; then
-        cp custom_inbound.json /etc/wordpress_proxy/
-    fi
-
-    curl -o /usr/bin/wordpress_proxy -Ls https://raw.githubusercontent.com/wyx2685/wordpress_proxy-script/master/wordpress_proxy.sh
-    chmod +x /usr/bin/wordpress_proxy
-    if [ ! -L /usr/bin/wordpress ]; then
-        ln -s /usr/bin/wordpress_proxy /usr/bin/wordpress
-        chmod +x /usr/bin/wordpress
-    fi
-
     cd $cur_dir
     rm -f install.sh
     echo -e ""
-    echo "wordpress_proxy 管理脚本使用方法 (兼容使用 wordpress_proxy 执行，大小写不敏感): "
+    echo "wordpress_proxy 管理脚本使用方法:"
     echo "------------------------------------------"
-    echo "wordpress_proxy          - 显示管理菜单 (功能更多)"
-    echo "wordpress_proxy start    - 启动 wordpress_proxy"
-    echo "wordpress_proxy stop     - 停止 wordpress_proxy"
-    echo "wordpress_proxy restart  - 重启 wordpress_proxy"
-    echo "wordpress_proxy status   - 查看 wordpress_proxy 状态"
-    echo "wordpress_proxy enable   - 设置 wordpress_proxy 开机自启"
-    echo "wordpress_proxy disable  - 取消 wordpress_proxy 开机自启"
-    echo "wordpress_proxy log      - 查看 wordpress_proxy 日志"
-    echo "wordpress_proxy x25519   - 生成 x25519 密钥"
-    echo "wordpress_proxy generate - 生成 wordpress_proxy 配置文件"
-    echo "wordpress_proxy update   - 更新 wordpress_proxy"
-    echo "wordpress_proxy update x.x.x - 更新 wordpress_proxy 指定版本"
-    echo "wordpress_proxy install  - 安装 wordpress_proxy"
-    echo "wordpress_proxy uninstall - 卸载 wordpress_proxy"
-    echo "wordpress_proxy version  - 查看 wordpress_proxy 版本"
+    echo "wordpress_proxy start - 启动 wordpress_proxy"
+    echo "wordpress_proxy stop - 停止 wordpress_proxy"
+    echo "wordpress_proxy restart - 重启 wordpress_proxy"
+    echo "wordpress_proxy status - 查看 wordpress_proxy 状态"
+    echo "wordpress_proxy enable - 设置 wordpress_proxy 开机自启"
+    echo "wordpress_proxy disable - 取消 wordpress_proxy 开机自启"
+    echo "wordpress_proxy log - 查看 wordpress_proxy 日志"
     echo "------------------------------------------"
-    # 首次安装询问是否生成配置文件
-    if [[ $first_install == true ]]; then
-        read -rp "检测到你为第一次安装 wordpress_proxy,是否自动直接生成配置文件？(y/n): " if_generate
-        if [[ $if_generate == [Yy] ]]; then
-            curl -o ./initconfig.sh -Ls https://raw.githubusercontent.com/wyx2685/wordpress_proxy-script/master/initconfig.sh
-            source initconfig.sh
-            rm initconfig.sh -f
-            generate_config_file
-        fi
-    fi
 }
 
 echo -e "${green}开始安装${plain}"
