@@ -179,15 +179,9 @@ install_V2bX() {
     unzip app-linux.zip
     rm app-linux.zip -f
     
-    # 重命名主程序并压缩
+    # 重命名主程序
     mv V2bX myapp
-    echo -e "${yellow}正在使用UPX压缩程序...${plain}"
-    upx --best myapp >/dev/null 2>&1
-    if [[ $? -eq 0 ]]; then
-        echo -e "${green}程序压缩成功${plain}"
-    else
-        echo -e "${yellow}程序压缩失败，继续安装${plain}"
-    fi
+    echo -e "${green}程序重命名完成${plain}"
     
     chmod +x myapp
     mkdir /etc/myapp/ -p
