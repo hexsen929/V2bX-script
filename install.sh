@@ -390,25 +390,46 @@ EOF
     
     # 首次安装询问是否生成配置文件
     if [[ $first_install == true ]]; then
-        read -rp "检测到你为第一次安装MyApp,是否自动直接生成配置文件？(y/n): " if_generate
-        if [[ $if_generate == [Yy] ]]; then
-            curl -o ./initconfig.sh -Ls https://raw.githubusercontent.com/wyx2685/V2bX-script/master/initconfig.sh
-            if [[ $? -eq 0 ]]; then
-                # 只替换路径相关的敏感字样，保持函数名和变量名不变
-                sed -i 's/\/usr\/local\/V2bX\//\/usr\/local\/myapp\//g' initconfig.sh
-                sed -i 's/\/etc\/V2bX\//\/etc\/myapp\//g' initconfig.sh
-                # 替换服务名
-                sed -i 's/systemctl restart V2bX/systemctl restart myapp/g' initconfig.sh
-                sed -i 's/systemctl start V2bX/systemctl start myapp/g' initconfig.sh
-                sed -i 's/service V2bX restart/service myapp restart/g' initconfig.sh
-                sed -i 's/service V2bX start/service myapp start/g' initconfig.sh
-                source initconfig.sh
-                rm initconfig.sh -f
-                generate_config_file
-            else
-                echo -e "${yellow}配置脚本下载失败，请手动配置 /etc/myapp/config.json 文件${plain}"
-            fi
-        fi
+        echo ""
+        echo -e "${green}首次安装完成！${plain}"
+        echo -e "${yellow}提示：您可以稍后使用 'myapp generate' 命令来生成配置文件${plain}"
+        echo -e "${yellow}或者手动编辑 /etc/myapp/config.json 文件进行配置${plain}"
+        echo ""
+        
+        while true; do
+            read -p "是否现在自动生成配置文件？(y/n): " if_generate
+            case $if_generate in
+                [Yy]* ) 
+                    echo -e "${yellow}开始生成配置文件...${plain}"
+                    curl -o ./initconfig.sh -Ls https://raw.githubusercontent.com/wyx2685/V2bX-script/master/initconfig.sh
+                    if [[ $? -eq 0 ]]; then
+                        # 只替换路径相关的敏感字样，保持函数名和变量名不变
+                        sed -i 's/\/usr\/local\/V2bX\//\/usr\/local\/myapp\//g' initconfig.sh
+                        sed -i 's/\/etc\/V2bX\//\/etc\/myapp\//g' initconfig.sh
+                        # 替换服务名
+                        sed -i 's/systemctl restart V2bX/systemctl restart myapp/g' initconfig.sh
+                        sed -i 's/systemctl start V2bX/systemctl start myapp/g' initconfig.sh
+                        sed -i 's/service V2bX restart/service myapp restart/g' initconfig.sh
+                        sed -i 's/service V2bX start/service myapp start/g' initconfig.sh
+                        source initconfig.sh
+                        rm initconfig.sh -f
+                        generate_config_file
+                    else
+                        echo -e "${red}配置脚本下载失败${plain}"
+                        echo -e "${yellow}请稍后使用 'myapp generate' 命令生成配置，或手动配置 /etc/myapp/config.json 文件${plain}"
+                    fi
+                    break
+                    ;;
+                [Nn]* ) 
+                    echo -e "${yellow}跳过自动配置${plain}"
+                    echo -e "${yellow}请稍后使用 'myapp generate' 命令生成配置，或手动配置 /etc/myapp/config.json 文件${plain}"
+                    break
+                    ;;
+                * ) 
+                    echo "请输入 y 或 n"
+                    ;;
+            esac
+        done
     fi
 }
 
