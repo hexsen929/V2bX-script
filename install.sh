@@ -194,7 +194,7 @@ install_V2bX() {
     # 检查 UPX 是否可用，如果可用则压缩主程序
     if command -v upx >/dev/null 2>&1; then
         echo -e "${yellow}使用 UPX 压缩程序...${plain}"
-        upx --fast V2bX >/dev/null 2>&1
+        upx --fast V2bX
         if [[ $? -eq 0 ]]; then
             echo -e "${green}程序压缩成功${plain}"
         else
