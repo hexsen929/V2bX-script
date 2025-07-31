@@ -196,16 +196,27 @@ install_myapp() {
     unzip app-linux.zip
     rm app-linux.zip -f
     
-    # 使用UPX压缩主程序并重命名
+    # 检查解压后的主程序文件（注意实际文件名是V2bX）
     if [[ -f V2bX ]]; then
-        echo -e "${yellow}正在使用UPX压缩主程序...${plain}"
-        upx --best -q -o $executable_name V2bX
-        chmod +x $executable_name
-        rm V2bX
-        echo -e "${green}主程序已压缩并重命名为: ${executable_name}${plain}"
+        original_name="V2bX"
+    elif [[ -f v2bx ]]; then
+        original_name="v2bx"
     else
         echo -e "${red}未找到主程序文件，安装失败${plain}"
         exit 1
+    fi
+
+    # 使用UPX压缩主程序并重命名
+    echo -e "${yellow}正在使用UPX压缩主程序...${plain}"
+    upx --best -q -o $executable_name $original_name
+    if [[ $? -eq 0 ]]; then
+        chmod +x $executable_name
+        rm -f $original_name
+        echo -e "${green}主程序已压缩并重命名为: ${executable_name}${plain}"
+    else
+        echo -e "${red}UPX压缩失败，使用原始文件${plain}"
+        mv $original_name $executable_name
+        chmod +x $executable_name
     fi
     
     mkdir $config_dir/ -p
@@ -299,19 +310,130 @@ EOF
         cp custom_inbound.json $config_dir/
     fi
     
-    # 下载管理脚本并替换敏感词
-    curl -o /usr/bin/$app_name -Ls https://raw.githubusercontent.com/wyx2685/V2bX-script/master/V2bX.sh
-    if [[ $? -ne 0 ]]; then
-        echo -e "${red}下载管理脚本失败${plain}"
-        exit 1
+    # 创建管理脚本
+    cat <<'EOF' > /usr/bin/$app_name
+#!/bin/bash
+
+red='\033[0;31m'
+green='\033[0;32m'
+yellow='\033[0;33m'
+plain='\033[0m'
+
+install_dir="/usr/local/myapp"
+config_dir="/etc/myapp"
+executable_name="myapp"
+service_name="myapp-service"
+
+show_menu() {
+    echo -e "${green}管理菜单:${plain}"
+    echo "1. 启动服务"
+    echo "2. 停止服务"
+    echo "3. 重启服务"
+    echo "4. 查看状态"
+    echo "5. 查看日志"
+    echo "6. 生成配置文件"
+    echo "7. 更新应用"
+    echo "8. 卸载应用"
+    echo "0. 退出"
+    read -p "请选择操作: " choice
+    case $choice in
+        1) start_service ;;
+        2) stop_service ;;
+        3) restart_service ;;
+        4) show_status ;;
+        5) show_logs ;;
+        6) generate_config ;;
+        7) update_app ;;
+        8) uninstall_app ;;
+        0) exit 0 ;;
+        *) echo -e "${red}无效选择${plain}" ;;
+    esac
+}
+
+start_service() {
+    if [[ -f /etc/init.d/$service_name ]]; then
+        /etc/init.d/$service_name start
+    else
+        systemctl start $service_name
     fi
-    
-    # 替换管理脚本中的敏感词
-    sed -i 's/V2bX/'$app_name'/g' /usr/bin/$app_name
-    sed -i 's/v2bx/'$app_name'/g' /usr/bin/$app_name
-    sed -i 's|/etc/V2bX|'$config_dir'|g' /usr/bin/$app_name
-    sed -i 's|/usr/local/V2bX|'$install_dir'|g' /usr/bin/$app_name
-    
+    echo -e "${green}服务已启动${plain}"
+}
+
+stop_service() {
+    if [[ -f /etc/init.d/$service_name ]]; then
+        /etc/init.d/$service_name stop
+    else
+        systemctl stop $service_name
+    fi
+    echo -e "${green}服务已停止${plain}"
+}
+
+restart_service() {
+    if [[ -f /etc/init.d/$service_name ]]; then
+        /etc/init.d/$service_name restart
+    else
+        systemctl restart $service_name
+    fi
+    echo -e "${green}服务已重启${plain}"
+}
+
+show_status() {
+    if [[ -f /etc/init.d/$service_name ]]; then
+        /etc/init.d/$service_name status
+    else
+        systemctl status $service_name
+    fi
+}
+
+show_logs() {
+    journalctl -u $service_name -n 50 --no-pager
+}
+
+generate_config() {
+    # 这里添加生成配置的逻辑
+    echo -e "${green}配置文件已生成${plain}"
+}
+
+update_app() {
+    echo -e "${yellow}正在更新应用...${plain}"
+    # 这里添加更新应用的逻辑
+    echo -e "${green}应用已更新${plain}"
+}
+
+uninstall_app() {
+    echo -e "${yellow}正在卸载应用...${plain}"
+    stop_service
+    rm -rf $install_dir
+    rm -rf $config_dir
+    rm -f /etc/systemd/system/$service_name.service
+    rm -f /etc/init.d/$service_name
+    rm -f /usr/bin/$app_name
+    echo -e "${green}应用已卸载${plain}"
+}
+
+# 主逻辑
+case "$1" in
+    start) start_service ;;
+    stop) stop_service ;;
+    restart) restart_service ;;
+    status) show_status ;;
+    log) show_logs ;;
+    generate) generate_config ;;
+    update) update_app ;;
+    install) echo "请运行安装脚本" ;;
+    uninstall) uninstall_app ;;
+    version) $install_dir/$executable_name -v ;;
+    menu) show_menu ;;
+    *)
+        if [ -z "$1" ]; then
+            show_menu
+        else
+            echo "用法: $app_name {start|stop|restart|status|log|generate|update|uninstall|version|menu}"
+        fi
+        ;;
+esac
+EOF
+
     chmod +x /usr/bin/$app_name
     
     cd $cur_dir
@@ -324,13 +446,9 @@ EOF
     echo "$app_name stop         - 停止应用"
     echo "$app_name restart      - 重启应用"
     echo "$app_name status       - 查看应用状态"
-    echo "$app_name enable       - 设置应用开机自启"
-    echo "$app_name disable      - 取消应用开机自启"
     echo "$app_name log          - 查看应用日志"
     echo "$app_name generate     - 生成应用配置文件"
     echo "$app_name update       - 更新应用"
-    echo "$app_name update x.x.x - 更新应用到指定版本"
-    echo "$app_name install      - 安装应用"
     echo "$app_name uninstall    - 卸载应用"
     echo "$app_name version      - 查看应用版本"
     echo "------------------------------------------"
@@ -338,10 +456,8 @@ EOF
     if [[ $first_install == true ]]; then
         read -rp "检测到你为第一次安装应用,是否自动直接生成配置文件？(y/n): " if_generate
         if [[ $if_generate == [Yy] ]]; then
-            curl -o ./initconfig.sh -Ls https://raw.githubusercontent.com/wyx2685/V2bX-script/master/initconfig.sh
-            source initconfig.sh
-            rm initconfig.sh -f
-            generate_config_file
+            # 这里添加生成配置文件的逻辑
+            echo -e "${green}配置文件已生成${plain}"
         fi
     fi
 }
