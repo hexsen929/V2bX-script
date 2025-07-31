@@ -217,7 +217,7 @@ install_V2bX() {
 name="myapp"
 description="MyApp Service"
 command="/usr/local/myapp/myapp"
-command_args="server"
+command_args="server -c /etc/myapp/config.json"
 command_user="root"
 pidfile="/run/myapp.pid"
 command_background="yes"
@@ -245,7 +245,7 @@ LimitRSS=infinity
 LimitCORE=infinity
 LimitNOFILE=999999
 WorkingDirectory=/usr/local/myapp/
-ExecStart=/usr/local/myapp/myapp server
+ExecStart=/usr/local/myapp/myapp server -c /etc/myapp/config.json
 Restart=always
 RestartSec=10
 
@@ -403,14 +403,19 @@ EOF
                     echo -e "${yellow}开始生成配置文件...${plain}"
                     curl -o ./initconfig.sh -Ls https://raw.githubusercontent.com/wyx2685/V2bX-script/master/initconfig.sh
                     if [[ $? -eq 0 ]]; then
-                        # 只替换路径相关的敏感字样，保持函数名和变量名不变
+                        # 全面替换路径和服务名，确保兼容性
                         sed -i 's/\/usr\/local\/V2bX\//\/usr\/local\/myapp\//g' initconfig.sh
-                        sed -i 's/\/etc\/V2bX\//\/etc\/myapp\//g' initconfig.sh
-                        # 替换服务名
+                        sed -i 's/\/etc\/V2bX/\/etc\/myapp/g' initconfig.sh
+                        sed -i 's/cd \/etc\/V2bX/cd \/etc\/myapp/g' initconfig.sh
                         sed -i 's/systemctl restart V2bX/systemctl restart myapp/g' initconfig.sh
                         sed -i 's/systemctl start V2bX/systemctl start myapp/g' initconfig.sh
                         sed -i 's/service V2bX restart/service myapp restart/g' initconfig.sh
                         sed -i 's/service V2bX start/service myapp start/g' initconfig.sh
+                        sed -i 's/v2bx restart/myapp restart/g' initconfig.sh
+                        sed -i 's/v2bx start/myapp start/g' initconfig.sh
+                        # 替换配置文件中的字符串显示
+                        sed -i 's/V2bX 配置文件生成完成/MyApp 配置文件生成完成/g' initconfig.sh
+                        sed -i 's/请手动修改配置文件后重启V2bX/请手动修改配置文件后重启MyApp/g' initconfig.sh
                         source initconfig.sh
                         rm initconfig.sh -f
                         generate_config_file
